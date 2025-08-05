@@ -1,0 +1,6 @@
+.idea
+.conda
+__pycache__
+*.jpg
+*.jpeg
+*.png
