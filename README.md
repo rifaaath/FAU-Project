@@ -1,4 +1,4 @@
-## End-to-End Computational Paleography and Writer Identification
+## End-to-End Glyph Detection and Writer Identification
 
 ### 1. Project Overview
 
