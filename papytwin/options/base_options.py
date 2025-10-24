@@ -59,10 +59,10 @@ class BaseOptions:
 
     @staticmethod
     def _print(args):
-        print('------------ Options -------------')
+        print('Options -')
         for k, v in sorted(args.items()):
             print('%s: %s' % (str(k), str(v)))
-        print('-------------- End ----------------')
+        print('--End -')
 
     def _save(self, args):
         expr_dir = os.path.join(self._opt.checkpoints_dir, self._opt.name)
@@ -73,7 +73,7 @@ class BaseOptions:
             assert os.path.exists(expr_dir)
         file_name = os.path.join(expr_dir, 'opt_%s.txt' % ('train' if self.is_train else 'test'))
         with open(file_name, 'wt') as opt_file:
-            opt_file.write('------------ Options -------------\n')
+            opt_file.write('Options -\n')
             for k, v in sorted(args.items()):
                 opt_file.write('%s: %s\n' % (str(k), str(v)))
-            opt_file.write('-------------- End ----------------\n')
+            opt_file.write('--End -\n')
