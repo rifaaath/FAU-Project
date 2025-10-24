@@ -80,17 +80,10 @@ python scripts/run_yolo.py train --model_start yolov8m.pt --epochs 100 --batch 8
 **Commands:**
 ```bash
 # 1. Run sliced prediction on all clean images
-python scripts/predict_patched_yolo.py \
-    --weights yolo_training_run/train/weights/best.pt \
-    --source_dir datasets/HomerComp_Cleaned/ \
-    --project_name pipeline_output
+python scripts/predict_patched_yolo.py --weights yolo_training_run/train/weights/best.pt --source_dir datasets/HomerComp_Cleaned/ --project_name pipeline_output
 
 # 2. Crop the glyphs based on the prediction JSON
-python scripts/batch_cropper.py \
-    --images_dir datasets/HomerComp_Cleaned/ \
-    --predictions_path pipeline_output/predict/predictions_by_filename.json \
-    --output_dir pipeline_output/2_cropped_glyphs \
-    --train_json papytwin/HomerCompTraining/HomerCompTraining.json
+python scripts/batch_cropper.py --images_dir datasets/HomerComp_Cleaned/ --predictions_path pipeline_output/predict/predictions_by_filename.json --output_dir pipeline_output/2_cropped_glyphs --train_json papytwin/HomerCompTraining/HomerCompTraining.json
 ```
 
 **Expected Output:**
@@ -106,22 +99,13 @@ python scripts/batch_cropper.py \
 **Commands:**
 ```bash
 # 1. Organize flat crops into folders by writer ID
-python scripts/glyph_organizer.py \
-    --input_dir pipeline_output/2_cropped_glyphs \
-    --output_dir pipeline_output/3_organized_by_tm \
-    --metadata_json papytwin/HomerCompTraining/HomerCompTraining.json \
-    --metadata_excel papytwin/1.CompetitionOverview.xlsx
+python scripts/glyph_organizer.py --input_dir pipeline_output/2_cropped_glyphs --output_dir pipeline_output/3_organized_by_tm --metadata_json papytwin/HomerCompTraining/HomerCompTraining.json --metadata_excel papytwin/1.CompetitionOverview.xlsx
 
 # 2. Sanitize the organized dataset to remove modern character artifacts
-python scripts/sanitize_dataset.py \
-    --source_dir pipeline_output/3_organized_by_tm \
-    --dest_dir pipeline_output/4_sanitized_glyphs
+python scripts/sanitize_dataset.py --source_dir pipeline_output/3_organized_by_tm --dest_dir pipeline_output/4_sanitized_glyphs
 
 # 3. Create the master manifest from the sanitized glyphs
-python scripts/create_full_manifest.py \
-    --merged_dir pipeline_output/4_sanitized_glyphs \
-    --output_csv pipeline_output/5_final_manifest.csv \
-    --metadata_json papytwin/HomerCompTraining/HomerCompTraining.json
+python scripts/create_full_manifest.py --merged_dir pipeline_output/4_sanitized_glyphs --output_csv pipeline_output/5_final_manifest.csv --metadata_json papytwin/HomerCompTraining/HomerCompTraining.json
 
 # 4. Create the final page-independent train/test splits
 python scripts/prep_final_dataset.py
@@ -154,10 +138,7 @@ python scripts/train_supervised.py
 
 **Command:**
 ```bash
-python scripts/extract_embeddings.py \
-    --checkpoint_path checkpoints/supcon_encoder.pt \
-    --manifest_csv pipeline_output/6_final_splits/test_final.csv \
-    --output_path pipeline_output/7_test_embeddings.npz
+python scripts/extract_embeddings.py --checkpoint_path checkpoints/supcon_encoder.pt --manifest_csv pipeline_output/6_final_splits/test_final.csv --output_path pipeline_output/7_test_embeddings.npz
 ```
 
 **Expected Output:**
@@ -193,20 +174,13 @@ After completing the main pipeline, you can run the following experiments.
 # You may need a script to extract embeddings for the full manifest, not just the test split.
 
 # 1. Create the writer-disjoint splits
-python scripts/create_writer_disjoint_split.py \
-    --full_manifest pipeline_output/5_final_manifest.csv \
-    --output_dir pipeline_output/8_writer_disjoint_splits
+python scripts/create_writer_disjoint_split.py --full_manifest pipeline_output/5_final_manifest.csv --output_dir pipeline_output/8_writer_disjoint_splits
 
 # 2. Run the leave-one-image-out evaluation on the test set
-python scripts/extract_embeddings.py \
-    --checkpoint_path checkpoints/supcon_encoder.pt \
-    --manifest_csv pipeline_output/8_writer_disjoint_splits/test_writer_disjoint.csv \
-    --output_path pipeline_output/8_writer_disjoint_splits/test_embeddings_disjoint.npz
+python scripts/extract_embeddings.py --checkpoint_path checkpoints/supcon_encoder.pt --manifest_csv pipeline_output/8_writer_disjoint_splits/test_writer_disjoint.csv --output_path pipeline_output/8_writer_disjoint_splits/test_embeddings_disjoint.npz
     
 # (This script also requires embeddings for the writer-disjoint test set)
-python scripts/eval_writer_disjoint_loio.py \
-    --embeddings_path pipeline_output/8_writer_disjoint_splits/test_embeddings_disjoint.npz \
-    --manifest_path pipeline_output/8_writer_disjoint_splits/test_writer_disjoint.csv
+python scripts/eval_writer_disjoint_loio.py --embeddings_path pipeline_output/8_writer_disjoint_splits/test_embeddings_disjoint.npz --manifest_path pipeline_output/8_writer_disjoint_splits/test_writer_disjoint.csv
 ```
 **Expected Final Result:**
 *   The script will print a top-1 page-level accuracy score.
@@ -219,19 +193,12 @@ python scripts/eval_writer_disjoint_loio.py \
 ```bash
 # 1. Generate VLAC page descriptors
 
-python scripts/extract_embeddings.py \
-    --checkpoint_path checkpoints/supcon_encoder.pt \
-    --manifest_csv pipeline_output/5_final_manifest.csv \
-    --output_path pipeline_output/full_embeddings.npz
+python scripts/extract_embeddings.py --checkpoint_path checkpoints/supcon_encoder.pt --manifest_csv pipeline_output/5_final_manifest.csv --output_path pipeline_output/full_embeddings.npz
     
-python scripts/run_simple_vlac.py \
-    --embeddings pipeline_output/full_embeddings.npz \
-    --manifest pipeline_output/5_final_manifest.csv \
-    --output_path pipeline_output/9_vlac_descriptors.npz
+python scripts/run_simple_vlac.py --embeddings pipeline_output/full_embeddings.npz --manifest pipeline_output/5_final_manifest.csv --output_path pipeline_output/9_vlac_descriptors.npz
 
 # 2. Evaluate the mAP on the VLAC descriptors
-python scripts/eval_page_level_map.py \
-    --descriptors_path pipeline_output/9_vlac_descriptors.npz
+python scripts/eval_page_level_map.py --descriptors_path pipeline_output/9_vlac_descriptors.npz
 ```
 **Expected Final Result:**
 *   The script will print a page-level mAP score.
@@ -243,18 +210,10 @@ python scripts/eval_page_level_map.py \
 **Example Commands:**
 ```bash
 # Analyze writer distinctiveness for the character 'epsilon'
-python scripts/analyze_char_distinctiveness.py \
-    --embeddings path/to/full_embeddings.npz \
-    --manifest pipeline_output/5_final_manifest.csv \
-    --character epsilon \
-    --output epsilon_distinctiveness.csv
+python scripts/analyze_char_distinctiveness.py --embeddings path/to/full_embeddings.npz --manifest pipeline_output/5_final_manifest.csv --character epsilon --output epsilon_distinctiveness.csv
 
 # Visualize the discovered allographs for 'epsilon'
-python scripts/visualize_allographs.py \
-    --embeddings path/to/full_embeddings.npz \
-    --manifest pipeline_output/5_final_manifest.csv \
-    --character epsilon \
-    --output epsilon_allographs.png
+python scripts/visualize_allographs.py --embeddings path/to/full_embeddings.npz --manifest pipeline_output/5_final_manifest.csv --character epsilon --output epsilon_allographs.png
 ```
 
 
@@ -268,10 +227,7 @@ python scripts/visualize_allographs.py \
 
 **Command:**
 ```bash
-python scripts/predict_patched_yolo_final.py \
-    --weights yolo_training_run/train/weights/best.pt \
-    --source_dir grk_dataset/test/ \
-    --project_name grk_pipeline
+python scripts/predict_patched_yolo_final.py --weights yolo_training_run/train/weights/best.pt --source_dir grk_dataset/test/ --project_name grk_pipeline
 ```
 
 **Expected Output:** A `grk_pipeline/predict/predictions_by_filename.json` file containing detections for the test images only.
@@ -284,10 +240,7 @@ python scripts/predict_patched_yolo_final.py \
 
 **Command:**
 ```bash
-python scripts/batch_cropper_generic.py \
-    --images_dir grk_dataset/test/ \
-    --predictions_path grk_pipeline/predict/predictions_by_filename.json \
-    --output_dir grk_pipeline/2_cropped_glyphs
+python scripts/batch_cropper_generic.py --images_dir grk_dataset/test/ --predictions_path grk_pipeline/predict/predictions_by_filename.json --output_dir grk_pipeline/2_cropped_glyphs
 ```
 **Expected Output:** A `grk_pipeline/2_cropped_glyphs/` directory containing only glyphs cropped from the test images.
 
@@ -299,11 +252,7 @@ python scripts/batch_cropper_generic.py \
 
 **Command:**
 ```bash
-python scripts/create_manifest_generic.py \
-    --glyph_dir grk_pipeline/2_cropped_glyphs/ \
-    --gt_csv grk_dataset/grk_truth.csv \
-    --output_csv grk_pipeline/3_grk_manifest.csv \
-    --image_list_dir grk_dataset/test/
+python scripts/create_manifest_generic.py --glyph_dir grk_pipeline/2_cropped_glyphs/ --gt_csv grk_dataset/grk_truth.csv --output_csv grk_pipeline/3_grk_manifest.csv --image_list_dir grk_dataset/test/
 ```
 **Expected Output:** A manifest file `grk_pipeline/3_grk_manifest.csv` containing paths and writer IDs for the test set glyphs only.
 
@@ -315,10 +264,7 @@ python scripts/create_manifest_generic.py \
 
 **Command:**
 ```bash
-python scripts/extract_embeddings.py \
-    --checkpoint_path checkpoints/supcon_encoder.pt \
-    --manifest_csv grk_pipeline/3_grk_manifest.csv \
-    --output_path grk_pipeline/4_grk_embeddings.npz
+python scripts/extract_embeddings.py --checkpoint_path checkpoints/supcon_encoder.pt --manifest_csv grk_pipeline/3_grk_manifest.csv --output_path grk_pipeline/4_grk_embeddings.npz
 ```
 **Expected Output:** An `.npz` file at `grk_pipeline/4_grk_embeddings.npz`.
 
@@ -330,9 +276,7 @@ python scripts/extract_embeddings.py \
 
 **Command:**
 ```bash
-python scripts/eval_leave_one_out.py \
-    --embeddings_path grk_pipeline/4_grk_embeddings.npz \
-    --manifest_path grk_pipeline/3_grk_manifest.csv
+python scripts/eval_leave_one_out.py --embeddings_path grk_pipeline/4_grk_embeddings.npz --manifest_path grk_pipeline/3_grk_manifest.csv
 ```
 
 **Expected Final Result:**
