@@ -2,6 +2,4 @@ papytwin/pretrained/
 .idea
 .conda
 __pycache__
-*.jpg
-*.jpeg
-*.png
+
