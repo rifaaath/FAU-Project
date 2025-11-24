@@ -2,4 +2,15 @@ papytwin/pretrained/
 .idea
 .conda
 __pycache__
+yolo_training_run/
+checkpoints/
+datasets/
+final_splits/
+glyph_crops_merged_by_tm/
+grk_dataset/
+grk_pipeline_test
+hog_features
+papytwin/
+pipeline_output/
+*.npz
 

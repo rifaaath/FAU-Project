@@ -91,6 +91,11 @@ def create_manifest(args):
     print("Creating character normalization map...")
     id_to_char_name_map = create_char_normalization_map(metadata_json)
 
+    print("--- DEBUG: ID to Character Map ---")
+    for char_id, char_name in list(id_to_char_name_map.items())[:10]: # Print first 10
+        print(f"  ID: {char_id} -> Name: '{char_name}'")
+    print("------------------------------------")
+
     print(f"Scanning '{merged_dir}' to create a full manifest...")
     manifest_rows = []
     fieldnames = ["path", "tm_id", "source", "category_id", "base_char_name"]
@@ -105,7 +110,10 @@ def create_manifest(args):
                 category_id = int(cat_id_str)
 
                 base_char_name = id_to_char_name_map.get(category_id)
-
+                if category_id == 7: # We know ID 7 is a problem
+                    print(f"DEBUG: Found file {glyph_file.name} with problematic ID 7.")
+                    print(f"   -> Parsed Category ID: {category_id}")
+                    print(f"   -> Mapped Character Name: {base_char_name}")
                 if base_char_name:
                     manifest_rows.append({
                         "path": glyph_file.as_posix(),

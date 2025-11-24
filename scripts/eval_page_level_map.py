@@ -1,59 +1,67 @@
+import argparse
 import numpy as np
 from sklearn.metrics.pairwise import cosine_similarity
-from tqdm import tqdm
-import argparse
 from sklearn.model_selection import GroupShuffleSplit
-
+from tqdm import tqdm
 
 def evaluate_page_map(args):
-    # Load Data 
+    # Load the VLAC descriptors
     data = np.load(args.descriptors_path, allow_pickle=True)
     descriptors = data['descriptors']
     doc_ids = data['doc_ids']
     writer_ids = data['writer_ids']
 
-    # Perform the same Page-Independent Split 
+    # We need to evaluate only on the TEST set to be fair.
+    # We recreate the same split used in generation.
     splitter = GroupShuffleSplit(n_splits=1, test_size=0.2, random_state=42)
     _, test_indices = next(splitter.split(descriptors, groups=doc_ids))
 
     test_descriptors = descriptors[test_indices]
-    test_writer_ids = writer_ids[test_indices]
+    test_writers = writer_ids[test_indices]
+    
+    print(f"Evaluating mAP on {len(test_descriptors)} test pages...")
 
-    print(f"Evaluating mAP on a test set of {len(test_descriptors)} pages.")
-
-    # Run mAP Evaluation 
     average_precisions = []
-    for i in tqdm(range(len(test_descriptors)), desc="Evaluating Queries"):
-        query_desc = test_descriptors[i]
-        true_writer_id = test_writer_ids[i]
+    
+    # Leave-One-Out Evaluation on Page Level
+    for i in tqdm(range(len(test_descriptors))):
+        query_vec = test_descriptors[i].reshape(1, -1)
+        true_writer = test_writers[i]
 
-        gallery_descs = np.delete(test_descriptors, i, axis=0)
-        gallery_writers = np.delete(test_writer_ids, i)
+        # Gallery is all other test pages
+        gallery_vecs = np.delete(test_descriptors, i, axis=0)
+        gallery_writers = np.delete(test_writers, i)
 
-        num_relevant_docs = np.sum(gallery_writers == true_writer_id)
-        if num_relevant_docs == 0: continue
+        # Skip if this writer has no other pages in test set (can happen with small data)
+        if np.sum(gallery_writers == true_writer) == 0:
+            continue
 
-        similarities = cosine_similarity(query_desc.reshape(1, -1), gallery_descs)[0]
-        ranked_writers = gallery_writers[np.argsort(similarities)[::-1]]
+        # Calculate Similarity
+        similarities = cosine_similarity(query_vec, gallery_vecs)[0]
+        
+        # Rank results
+        indices = np.argsort(similarities)[::-1]
+        ranked_writers = gallery_writers[indices]
 
-        hits, ap = 0, 0.0
-        for k, pred_writer in enumerate(ranked_writers):
-            if pred_writer == true_writer_id:
+        # Calculate AP
+        hits = 0
+        sum_precisions = 0
+        num_relevant = 0
+        
+        for k, w in enumerate(ranked_writers):
+            if w == true_writer:
                 hits += 1
-                ap += hits / (k + 1)
+                num_relevant += 1
+                sum_precisions += hits / (k + 1)
+        
+        if num_relevant > 0:
+            average_precisions.append(sum_precisions / num_relevant)
 
-        average_precisions.append(ap / num_relevant_docs)
-
-    mean_ap = np.mean(average_precisions) * 100 if average_precisions else 0.0
-    print("\n" + "=" * 40)
-    print("Page-Level Identification Result")
-    print(f"   Aggregation Method: Simple-VLAC")
-    print(f"   Mean Average Precision (mAP): {mean_ap:.2f}%")
-    print("=" * 40)
-
+    mean_ap = np.mean(average_precisions) * 100 if average_precisions else 0
+    print(f"\nPage-Level mAP (Simple-VLAC): {mean_ap:.2f}%")
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description="Evaluate page-level descriptors using mAP.")
+    parser = argparse.ArgumentParser()
     parser.add_argument("--descriptors_path", required=True)
     args = parser.parse_args()
     evaluate_page_map(args)

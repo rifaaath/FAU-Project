@@ -5,7 +5,7 @@ import torch.nn.functional as F
 
 
 class SimCLRModel(nn.Module):
-    def __init__(self, base_model="resnet18", out_dim=128):
+    def __init__(self, base_model="resnet50", out_dim=128):
         super(SimCLRModel, self).__init__()
 
         # Load backbone
@@ -26,6 +26,7 @@ class SimCLRModel(nn.Module):
         self.projector = nn.Sequential(
             nn.Linear(feat_dim, 256),
             nn.ReLU(),
+            nn.Dropout(p=0.5),
             nn.Linear(256, out_dim)
         )
 

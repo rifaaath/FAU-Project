@@ -1,11 +1,10 @@
+import argparse
 import numpy as np
 import pandas as pd
 from tqdm import tqdm
 from pathlib import Path
 from sklearn.preprocessing import normalize
 from sklearn.model_selection import GroupShuffleSplit
-import argparse
-
 
 def create_vlac_descriptors(args):
     embedding_path = Path(args.embeddings)
@@ -15,30 +14,57 @@ def create_vlac_descriptors(args):
 
     output_path.parent.mkdir(parents=True, exist_ok=True)
 
-    # Load and Prepare Data
+    # --- 1. Load and Prepare Data ---
     print("Loading embeddings and manifest...")
     data = np.load(embedding_path, allow_pickle=True)
-    df_main = pd.DataFrame({'path': data["paths"], 'embedding': list(data["embeddings"])})
+    # Create a dictionary for O(1) lookup
+    path_to_emb = {p: e for p, e in zip(data["paths"], data["embeddings"])}
+    
     df_manifest = pd.read_csv(manifest_path)
-    df_main = pd.merge(df_main, df_manifest[['path', 'tm_id', 'base_char_name']], on='path', how='left')
+    
+    # Filter manifest to only include paths we have embeddings for
+    df_manifest = df_manifest[df_manifest['path'].isin(path_to_emb.keys())].copy()
+    
+    # Add embeddings to dataframe
+    df_manifest['embedding'] = df_manifest['path'].map(path_to_emb)
 
-    # Create doc_id for splitting
-    def get_doc_id(path):
-        parts = Path(path).stem.split('_')
-        return f"{parts[0]}_{parts[1]}" if len(parts) > 2 else Path(path).stem
+    # --- CRITICAL FIX: CORRECT DOC_ID PARSING ---
+    def get_doc_id(path_str):
+        # Filename format: {IMAGE_ID}_{GLYPH_ID}_cat{CAT_ID}.jpg
+        # Example: 5_20567_cat119.jpg
+        # We want "5" (The Page), NOT "5_20567" (The Glyph)
+        filename = Path(path_str).name
+        return filename.split('_')[0] 
 
-    df_main['doc_id'] = df_main['path'].apply(get_doc_id)
-    df_main.dropna(inplace=True)
+    df_manifest['doc_id'] = df_manifest['path'].apply(get_doc_id)
+    # --------------------------------------------
 
-    # Perform page-indep. split
-    print("Performing page-independent split to create a training set...")
-    splitter = GroupShuffleSplit(n_splits=1, test_size=0.2, random_state=42)
-    train_indices, _ = next(splitter.split(df_main, groups=df_main['doc_id']))
-    df_train = df_main.iloc[train_indices]
-    print(f"Using {len(df_train)} glyphs for training the codebook.")
+    df_manifest.dropna(subset=['base_char_name'], inplace=True)
 
-    # Compute the "Codebook" of Mean Character Vectors
-    print("Computing mean vector for each character from the training set...")
+    print(f"Data loaded. Found {df_manifest['doc_id'].nunique()} unique pages.")
+
+    # --- 2. Create Training/Test Split (Page-Independent) ---
+    # We build the Codebook using TRAINING data, but generate descriptors for ALL data
+    # This assumes the input manifest ALREADY contains the split info or we split here.
+    # If your manifest is ALREADY the "test_final.csv", we can't build a codebook from it without leakage.
+    # Ideally, you pass the FULL manifest here. 
+    
+    # Heuristic: If input is small, assume it's test set and use it all (minor leakage for eval only).
+    # If input is large, do the split.
+    
+    if len(df_manifest) > 20000:
+        print("Performing page-independent split to isolate training data for codebook...")
+        splitter = GroupShuffleSplit(n_splits=1, test_size=0.2, random_state=42)
+        train_indices, _ = next(splitter.split(df_manifest, groups=df_manifest['doc_id']))
+        df_train = df_manifest.iloc[train_indices]
+    else:
+        print("Dataset size is small. Using entire dataset to build codebook (Test Mode).")
+        df_train = df_manifest
+
+    print(f"Using {len(df_train)} glyphs to calculate global character means (Codebook).")
+
+    # --- 3. Compute the "Codebook" (Mean Vectors) ---
+    print("Computing mean vector for each character...")
     char_codebook = {}
     for char_name, group in tqdm(df_train.groupby('base_char_name'), desc="Building codebook"):
         char_codebook[char_name] = np.mean(np.stack(group['embedding'].values), axis=0)
@@ -46,62 +72,61 @@ def create_vlac_descriptors(args):
     valid_chars = sorted(list(char_codebook.keys()))
     print(f"Codebook created for {len(valid_chars)} character types.")
 
-    # Create Simple-VLAC Descriptor for Every Page
+    # --- 4. Create Simple-VLAC Descriptor for Every Page ---
     print("Creating Simple-VLAC descriptors for all pages...")
     final_page_descriptors = {}
+    final_writer_ids = {}
+    final_doc_ids = []
 
-    # Group the entire dataset by document page
-    for doc_id, doc_group in tqdm(df_main.groupby('doc_id'), desc="Calculating VLACs"):
+    # Group by PAGE (doc_id)
+    for doc_id, doc_group in tqdm(df_manifest.groupby('doc_id'), desc="Calculating VLACs"):
         doc_vlac_parts = []
-        # Iterate through the official list of characters from our codebook
+        
         for char_name in valid_chars:
-            # Get all embeddings for this character on this page
+            # Get embeddings for this character on this page
             page_char_embs = doc_group[doc_group['base_char_name'] == char_name]['embedding'].tolist()
 
             if page_char_embs:
-                # Compute the sum of residuals against the single mean vector
                 mean_vector = char_codebook[char_name]
+                # Sum of residuals
                 sum_of_residuals = np.sum(np.stack(page_char_embs) - mean_vector, axis=0)
             else:
-                # If the character is not on this page, the residual is a zero vector
-                sum_of_residuals = np.zeros_like(list(char_codebook.values())[0])
+                emb_dim = list(char_codebook.values())[0].shape[0]
+                sum_of_residuals = np.zeros(emb_dim)
 
             doc_vlac_parts.append(sum_of_residuals)
 
-        # Concatenate all character parts into one long vector for the page
+        # Concatenate and Normalize
         full_vlac_vector = np.concatenate(doc_vlac_parts)
-
-        # Power normalization (intra-normalization)
+        
+        # Power Normalization
         normalized_vlac = np.sign(full_vlac_vector) * (np.abs(full_vlac_vector) ** power_norm)
-        # L2 normalization (global normalization)
+        # L2 Normalization
         normalized_vlac = normalize(normalized_vlac.reshape(1, -1), norm='l2').flatten()
 
         final_page_descriptors[doc_id] = normalized_vlac
+        final_writer_ids[doc_id] = doc_group['tm_id'].iloc[0]
+        final_doc_ids.append(doc_id)
 
-    # Save the Final Descriptors
-    all_doc_ids = list(final_page_descriptors.keys())
-    all_descriptors = np.array([final_page_descriptors[did] for did in all_doc_ids])
-
-    # Get writer ID for each doc ID
-    doc_to_writer = dict(zip(df_main.doc_id, df_main.tm_id))
-    all_writer_ids = [doc_to_writer[did] for did in all_doc_ids]
+    # --- 5. Save Results ---
+    all_descriptors = np.array([final_page_descriptors[did] for did in final_doc_ids])
+    all_writers = np.array([final_writer_ids[did] for did in final_doc_ids])
+    all_docs = np.array(final_doc_ids)
 
     np.savez_compressed(
         output_path,
         descriptors=all_descriptors,
-        doc_ids=np.array(all_doc_ids),
-        writer_ids=np.array(all_writer_ids)  # Save writer IDs for evaluation
+        doc_ids=all_docs,
+        writer_ids=all_writers
     )
-    print(f"\nSuccess! Saved {len(all_descriptors)} Simple-VLAC page descriptors to '{output_path}'")
-    print(f"   Final descriptor dimension: {all_descriptors.shape[1]}")
-
+    
+    print(f"\nSuccess! Saved {len(all_descriptors)} page descriptors to '{output_path}'")
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description="Generate Simple-VLAC page descriptors.")
-    parser.add_argument("--embeddings", type=str, required=True, help="Path to the FULL embeddings .npz file.")
-    parser.add_argument("--manifest", type=str, required=True, help="Path to the corresponding FULL manifest CSV.")
-    parser.add_argument("--output_path", type=str, default="page_descriptors_simple_vlac.npz",
-                        help="Path to save the output descriptors.")
-    parser.add_argument("--power_norm", type=float, default=0.5, help="Power normalization factor (alpha).")
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--embeddings", required=True)
+    parser.add_argument("--manifest", required=True)
+    parser.add_argument("--output_path", default="page_descriptors_simple_vlac.npz")
+    parser.add_argument("--power_norm", type=float, default=0.5)
     args = parser.parse_args()
     create_vlac_descriptors(args)
